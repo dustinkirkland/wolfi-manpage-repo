@@ -27,8 +27,8 @@ apk update
 DOC_PKGS=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | sort -u)
 TOTAL=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | wc -l)
 
-# Use rsync for efficiency
-apk add rsync
+# Use file for file type magic, and rsync for efficiency
+apk add file rsync
 
 # Install -doc package, copy out manpages, remove package
 # FIXME: Last package wins, if there are namespace colisions
@@ -41,6 +41,40 @@ for i in $DOC_PKGS; do
 	echo "DONE: [$j / $TOTAL]: $i"
 done
 
+# Unzip any files in $DEST_DIR, if there are any
+echo "INFO: Unzip any zipped files"
+find "$DEST_DIR" -type f -name "*.gz" | xargs -i gunzip {}
+
+rm-if-not-a-manpage() {
+	# Filename
+	local f="$1"
+	# Best guess at file type
+	local t=$(file "$f")
+	case "$t" in
+		*"troff or preprocessor input"*)
+			# If 'file' says it's troff format, then good enough, it's a manpage
+			true
+		;;
+		*"C source"*|*"ASCII text"*|*"Par archive data"*|*": data")
+			# For some reason, 'file' doesn't recognize these as manpages
+			# However, if they were installed in /usr/share/man, and the filename
+			# looks like a manpage with a dot-number, then we're going to call it a manpage
+			if echo "$f" | grep -q "\.[0-9]"; then
+				true
+			else
+				rm -f "$f"
+			fi
+		;;
+		*)
+			# Anything else, we'll scrap as not-a-manpage
+			rm -f "$f"
+		;;
+	esac
+}
+
+# Ensure every file in $DEST_DIR is a manpage
+find "$DEST_DIR" -type f | xargs -i rm-if-not-a-manpage {}
+
 # Ensure permissions
 echo "INFO: Fixing permissions..."
 chown -R $(id -u):$(id -g) $DEST_DIR
@@ -51,9 +85,23 @@ find $DEST_DIR -type f | xargs -i chmod 644 {}
 echo "INFO: Zipping all manpages..."
 find "$DEST_DIR" -type f | xargs -i gzip -9 {}
 
+fix-symlink() {
+	local l="$1"
+	local dir=$(dirname "$l")
+	local dest=$(readlink "$l")
+	if [ -e "$dir"/"$dest".gz ]; then
+		ln -sf "$l".gz "$dest".gz
+	fi
+	rm -f "$l"
+}
+
+# Handle symlinks
+echo "INFO: Updating symlinks to gzip files"
+find "$DEST_DIR" -type l | xargs -i fix-symlink {}
+
 # build our manpage index
 echo "INFO: Building an index..."
-find "$DEST_DIR" -type f > "$DEST_DIR"/manpages.index
+find "$DEST_DIR" > "$DEST_DIR"/manpages.index
 gzip -9 "$DEST_DIR"/manpages.index
 
 # create a static archive for offline usage

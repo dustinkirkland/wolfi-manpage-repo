@@ -1,0 +1,95 @@
+#!/bin/sh -e
+#    man - download and read manpages from the web, rather than your local system
+#
+# Copyright 2024 Chainguard, Inc.
+# Author: Dustin Kirkland <kirkland@chainguard.dev>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+set -e
+
+REPO="https://web-v1-enfmknn37q-uc.a.run.app"
+INDEX="/var/cache/man/manpages.index.gz"
+PAGE=$(echo "$@" | awk '{print $NF}')
+MAN_ARGS=$(echo "$@" | sed "s/\$PAGE$//")
+[ ! -z "$LANG" -a -z "$LOCALE" ] && LOCALE="$LANG" || true
+[ ! -z "$LC_MESSAGES" -a -z "$LOCALE" ] && LOCALE="$LC_MESSAGES" || true
+[ "$LOCALE" = "C" -o "$LOCALE" = "C.UTF-8" ] && LOCALE="" || true
+[ ! -z "$LOCALE" ] && LOCALE="${LOCALE%%_*}" || true
+if [ ! -z "$LOCALE" -a "$LOCALE" != "en" -a "$LOCALE" != "C.UTF-8" ]; then
+	GREP="^manpages\/man\/$LOCALE.*\/$PAGE\."
+else
+	GREP="^manpages\/man\/man.\/$PAGE\."
+fi
+
+update_cache() {
+	# Setup index cache dir
+	mkdir -p $(dirname "$INDEX")
+	# If we have no index, or the index is more than a day old, update cache
+	if [ ! -s "$INDEX" ] || [ $(find "$INDEX" -mmin +1440 -print) ]; then
+		echo "INFO: Updating cache..."
+		rm -f "$INDEX"
+		wget -q -O"$INDEX" "$REPO/manpages.index.gz"
+	fi
+}
+
+search_index() {
+	local regex="$1"
+	local matches=$(zcat "$INDEX" | grep -c "$regex")
+	case "$matches" in
+		0)
+			if $(zcat $INDEX | grep -q "$PAGE"); then
+				echo "ERROR: No exact matches; did you mean one of:"
+				zcat "$INDEX" | sed -e "s/.*\///" | grep "$PAGE" | sed -e "s/^/  - /" -e "s/\.gz$//" -e "s/\.[0-9]//" | sort -u
+				exit 1
+			else
+				echo "ERROR: No manpage matches for '$PAGE'" 1>&2
+			fi
+		;;
+		1)
+			# Bingo.  Exactly one match.  Fetch and render.
+			fetch_and_render "$regex"
+		;;
+		*)
+			echo "ERROR: Multiple matches for '$PAGE'" 1>&2
+			zcat "$INDEX" | grep -c "$regex"
+			exit 1
+		;;
+	esac
+}
+
+fetch_and_render() {
+	local regex="$1"
+	local tmpdir=$(mktemp -d /dev/shm/dman.XXXXXX)
+	trap "rm -rf $tmpdir" EXIT HUP INT QUIT TERM
+	local i=$(zcat "$INDEX" | grep -m1 "$regex")
+	i=${i#manpages/}
+	local man="$tmpdir/$i"
+	mkdir -p $(dirname "$man")
+	if wget -O "$man" "$REPO/$i" 2>/dev/null; then
+		gunzip "$man"
+		if echo "$man" | egrep -q "\.htm.gz|\.html.gz|\.xml.gz"; then
+			w3m "$man"
+		elif echo "$man" | grep -q "man/cat"; then
+			# Handle weird, pre-formatted catman pages
+			less -f -R "$man"
+		else
+			man $MAN_ARGS -l "$man"
+		fi
+	fi
+	rm -f "$man"
+}
+
+update_cache
+search_index "$GREP"
