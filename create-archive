@@ -24,10 +24,15 @@ cd /root
 DEST_DIR="manpages"
 mkdir -p "$DEST_DIR"
 
-# Find all Wolfi *-doc packages
+# Find all Wolfi manpages
 apk update
-DOC_PKGS=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | sort -u)
-TOTAL=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | wc -l)
+if [ "$1" = "--all" ]; then
+	DOC_PKGS=$(zcat /var/cache/apk/APKINDEX.*gz | grep "^P:" | sed -e "s/^P://" | sort -u)
+	TOTAL=$(zcat /var/cache/apk/APKINDEX.*gz | grep "^P:" | sed -e "s/^P://" | sort -u | wc -l)
+else
+	DOC_PKGS=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | sort -u)
+	TOTAL=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | wc -l)
+fi
 
 get_all_manpages() {
 	# Install -doc package, copy out manpages, remove package

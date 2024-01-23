@@ -7,7 +7,10 @@ tarball:
 	mv -f manpages/manpages.index.gz .
 
 docker: tarball
-	docker build . -t manpage-repo
+	docker build . -t wolfi-manpage-repo
+
+test: docker
+	docker run --rm -p 8080:8080 wolfi-manpage-repo
 
 clean:
 	rm -rf manpages/ *gz .ash_history
