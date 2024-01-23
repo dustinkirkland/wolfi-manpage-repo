@@ -13,5 +13,5 @@ test: docker
 	docker run --rm -p 8080:8080 wolfi-manpage-repo
 
 clean:
-	rm -rf manpages/ *gz .ash_history
+	rm -rf manpages/ *gz .ash_history packages.done*
 

@@ -26,24 +26,39 @@ mkdir -p "$DEST_DIR"
 
 # Find all Wolfi manpages
 apk update
-if [ "$1" = "--all" ]; then
-	DOC_PKGS=$(zcat /var/cache/apk/APKINDEX.*gz | grep "^P:" | sed -e "s/^P://" | sort -u)
-	TOTAL=$(zcat /var/cache/apk/APKINDEX.*gz | grep "^P:" | sed -e "s/^P://" | sort -u | wc -l)
-else
+if [ "$1" = "--doc-only" ]; then
+	# Ideally, we'd look at -doc packages only, but it seems that manpages
+	# are often shipped in other binary packages, too
 	DOC_PKGS=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | sort -u)
 	TOTAL=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | wc -l)
+else
+	DOC_PKGS=$(zcat /var/cache/apk/APKINDEX.*gz | grep "^P:" | sed -e "s/^P://" | sort -u)
+	TOTAL=$(zcat /var/cache/apk/APKINDEX.*gz | grep "^P:" | sed -e "s/^P://" | sort -u | wc -l)
 fi
 
 get_all_manpages() {
 	# Install -doc package, copy out manpages, remove package
 	# FIXME: Last package wins, if there are namespace colisions
-	j=0
+	local tmpdir=$(mktemp -d /tmp/apk-XXXXXXXX)
+	local j=0
+	local all_done=0
 	for i in $DOC_PKGS; do
-		apk add $i >/dev/null
-		rsync -a /usr/share/man "$DEST_DIR"
-		apk del $i >/dev/null
 		j=$((j+1))
-		echo "DONE: [$j / $TOTAL] $((100*$j/$TOTAL))%: $i"
+		if grep -q "^$i$" packages.done; then
+			# Optimize for packages we might have already installed due to dependencies
+			# Also, kind of allows this script to be re-entrant for subsequent runs
+			all_done=$(wc -l packages.done | awk '{print $1}' || printf "0")	
+			echo "SKIPPING: [$all_done / $TOTAL] $((100 * all_done / TOTAL))%: $i"
+		else
+			apk add "$i" >/dev/null
+			apk info --all >> packages.done
+			sort -u packages.done > packages.done.new
+			mv -f packages.done.new packages.done
+			rsync -a /usr/share/man "$DEST_DIR"
+			apk del $i >/dev/null
+			all_done=$(wc -l packages.done | awk '{print $1}' || printf "0")	
+			echo "DONE: [$all_done / $TOTAL] $((100 * all_done / TOTAL))%: $i"
+		fi
 	done
 }
 
