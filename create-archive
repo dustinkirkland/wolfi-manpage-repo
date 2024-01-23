@@ -55,7 +55,15 @@ get_all_manpages() {
 			sort -u packages.done > packages.done.new
 			mv -f packages.done.new packages.done
 			rsync -a /usr/share/man "$DEST_DIR"
-			apk del $i >/dev/null
+			case "$i" in
+				apk-tools|busybox|ca-certificates-bundle|glibc|glibc-locale-posix|ld-linux|libcrypt1|libcrypto3|libssl3|openssl-config|wolfi-base|wolfi-baselayout|wolfi-keys|zlib)
+					# Do NOT delete these base packages
+					true
+				;;
+				*)
+					apk del $i >/dev/null
+				;;
+			esac
 			all_done=$(wc -l packages.done | awk '{print $1}' || printf "0")	
 			echo "DONE: [$all_done / $TOTAL] $((100 * all_done / TOTAL))%: $i"
 		fi
