@@ -16,94 +16,115 @@
 # limitations under the License.
 
 
+# Install dependencies: file for file type magic, and rsync for efficiency
+apk add file rsync
+
 # Establish our destination directory
 cd /root
-DEST_DIR="$PWD/manpages"
+DEST_DIR="manpages"
 mkdir -p "$DEST_DIR"
-cd "$DEST_DIR"
 
 # Find all Wolfi *-doc packages
 apk update
 DOC_PKGS=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | sort -u)
 TOTAL=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | wc -l)
 
-# Use file for file type magic, and rsync for efficiency
-apk add file rsync
+get_all_manpages() {
+	# Install -doc package, copy out manpages, remove package
+	# FIXME: Last package wins, if there are namespace colisions
+	j=0
+	for i in $DOC_PKGS; do
+		apk add $i >/dev/null
+		rsync -a /usr/share/man "$DEST_DIR"
+		apk del $i >/dev/null
+		j=$((j+1))
+		echo "DONE: [$j / $TOTAL] $((100*$j/$TOTAL))%: $i"
+	done
+}
 
-# Install -doc package, copy out manpages, remove package
-# FIXME: Last package wins, if there are namespace colisions
-j=0
-for i in $DOC_PKGS; do
-	apk add $i >/dev/null
-	rsync -a /usr/share/man "$DEST_DIR"
-	apk del $i >/dev/null
-	j=$((j+1))
-	echo "DONE: [$j / $TOTAL]: $i"
-done
 
-# Unzip any files in $DEST_DIR, if there are any
-echo "INFO: Unzip any zipped files"
-find "$DEST_DIR" -type f -name "*.gz" | xargs -i gunzip {}
+unzip_any_zipped_files() {
+	# Unzip any files in $DEST_DIR, if there are any
+	echo "INFO: Unzip any zipped files"
+	find "$DEST_DIR" -type f -name "*.gz" | xargs -i gunzip {}
+}
 
-rm-if-not-a-manpage() {
-	# Filename
-	local f="$1"
-	# Best guess at file type
-	local t=$(file "$f")
-	case "$t" in
-		*"troff or preprocessor input"*)
-			# If 'file' says it's troff format, then good enough, it's a manpage
-			true
-		;;
-		*"C source"*|*"ASCII text"*|*"Par archive data"*|*": data")
-			# For some reason, 'file' doesn't recognize these as manpages
-			# However, if they were installed in /usr/share/man, and the filename
-			# looks like a manpage with a dot-number, then we're going to call it a manpage
-			if echo "$f" | grep -q "\.[0-9]"; then
+delete_non_manpages() {
+	# Try to prune files that are likely not readable by the "man" command
+	local f t
+	echo "INFO: Deleting non manpages"
+	for i in $(find "$DEST_DIR" -type f); do
+		# Best guess at file type
+		t=$(file "$f")
+		case "$t" in
+			*"troff or preprocessor input"*)
+				# If 'file' says it's troff format, then good enough, it's a manpage
 				true
-			else
+			;;
+			*"C source"*|*"ASCII text"*|*"Par archive data"*|*": data")
+				# For some reason, 'file' doesn't recognize these as manpages
+				# However, if they were installed in /usr/share/man, and the filename
+				# looks like a manpage with a dot-number, then we're going to call it a manpage
+				if echo "$f" | grep -q "\.[0-9]"; then
+					true
+				else
+					rm -f "$f"
+				fi
+			;;
+			*)
+				# Anything else, we'll scrap as not-a-manpage
+				echo "$f" >> $DEST_DIR/deleted.index
 				rm -f "$f"
-			fi
-		;;
-		*)
-			# Anything else, we'll scrap as not-a-manpage
-			rm -f "$f"
-		;;
-	esac
+			;;
+		esac
+	done
 }
 
-# Ensure every file in $DEST_DIR is a manpage
-find "$DEST_DIR" -type f | xargs -i rm-if-not-a-manpage {}
-
-# Ensure permissions
-echo "INFO: Fixing permissions..."
-chown -R $(id -u):$(id -g) $DEST_DIR
-find $DEST_DIR -type d | xargs -i chmod 755 {}
-find $DEST_DIR -type f | xargs -i chmod 644 {}
-
-# gzip every manpage
-echo "INFO: Zipping all manpages..."
-find "$DEST_DIR" -type f | xargs -i gzip -9 {}
-
-fix-symlink() {
-	local l="$1"
-	local dir=$(dirname "$l")
-	local dest=$(readlink "$l")
-	if [ -e "$dir"/"$dest".gz ]; then
-		ln -sf "$l".gz "$dest".gz
-	fi
-	rm -f "$l"
+fix_permissions() {
+	# Ensure permissions
+	echo "INFO: Fixing permissions..."
+	chown -R 1000:1000 $DEST_DIR
+	find $DEST_DIR -type d | xargs -i chmod 755 {}
+	find $DEST_DIR -type f | xargs -i chmod 644 {}
 }
 
-# Handle symlinks
-echo "INFO: Updating symlinks to gzip files"
-find "$DEST_DIR" -type l | xargs -i fix-symlink {}
+zip_each_file() {
+	# gzip every manpage
+	echo "INFO: Zipping all manpages..."
+	find "$DEST_DIR" -type f \! -name \*.gz | xargs -i gzip -9 {}
+}
 
-# build our manpage index
-echo "INFO: Building an index..."
-find "$DEST_DIR" > "$DEST_DIR"/manpages.index
-gzip -9 "$DEST_DIR"/manpages.index
+fix_symlinks() {
+	# Handle symlinks
+	local dir dest
+	echo "INFO: Updating symlinks to gzip files"
+	for l in $(find "$DEST_DIR" -type l); do
+		dir=$(dirname "$l")
+		dest=$(readlink "$l")
+		ln -sf "$dest".gz "$l.gz" && rm -f "$l"
+	done
+	# Delete broken links
+	echo "INFO: Deleting broken links"
+	find "$DEST_DIR" -type l ! -exec test -e {} \; -print | xargs -i rm -f {}
+}
 
-# create a static archive for offline usage
-echo "INFO: Creating a static archive..."
-tar zcf "$DEST_DIR"/manpages.tar.gz "$DEST_DIR"
+build_index() {
+	# Build our manpage index
+	echo "INFO: Building an index..."
+	find "$DEST_DIR" | sed -e "s/.*manpages\///" | gzip -9 > "$DEST_DIR"/manpages.index.gz
+}
+
+create_archive() {
+	# create a static archive for offline usage
+	echo "INFO: Creating a static archive..."
+	tar zcf "$DEST_DIR"/manpages.tar.gz "$DEST_DIR"
+}
+
+get_all_manpages
+unzip_any_zipped_files
+delete_non_manpages
+fix_permissions
+zip_each_file
+fix_symlinks
+build_index
+create_archive
