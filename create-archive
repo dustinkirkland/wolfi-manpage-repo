@@ -16,57 +16,53 @@
 # limitations under the License.
 
 
-# Install dependencies: file for file type magic, and rsync for efficiency
-apk add file rsync
-
 # Establish our destination directory
 cd /root
 DEST_DIR="manpages"
-mkdir -p "$DEST_DIR"
+PKG_DIR="packages"
+TMP_DIR="$(mktemp -d /tmp/wolfi-manpage-repo-XXXXXXXX)"
+mkdir -p "$DEST_DIR" "$PKG_DIR"
 
-# Find all Wolfi manpages
-apk update
-if [ "$1" = "--doc-only" ]; then
+sync_local_package_archive() {
 	# Ideally, we'd look at -doc packages only, but it seems that manpages
 	# are often shipped in other binary packages, too
-	DOC_PKGS=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | sort -u)
-	TOTAL=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | wc -l)
-else
-	DOC_PKGS=$(zcat /var/cache/apk/APKINDEX.*gz | grep "^P:" | sed -e "s/^P://" | sort -u)
-	TOTAL=$(zcat /var/cache/apk/APKINDEX.*gz | grep "^P:" | sed -e "s/^P://" | sort -u | wc -l)
-fi
+	# --doc-only seems to pick up about ~27K manpages, whereas the full run finds about 30K
+	#PKGS=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | sort -u)
+	#TOTAL=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | wc -l)
+	#
+	# So instead, we need to inspect all Wolfi manpages
+	apk update
+	# We need full wget, for -N option
+	apk add wget
+	# Get our full package list
+	PKGS=$(apk search | sort -u)
+	TOTAL=$(apk search | sort -u | wc -l)
+	local apk= url=
+	local a="x86_64"
+	local all_done=0
+	# Create a local package archive mirror
+	# This currently takes ~5 hours and ~36G of disk for a full run
+	# and 5 seconds for a no-op run
+	for apk in $PKGS; do
+		url="https://packages.wolfi.dev/os/$a/$apk.apk"
+		[ -s "$PKG_DIR/$apk.apk" ] || wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
+		# Should check signatures?
+		# apk verify "$PKG_DIR/$apk.apk"
+		all_done=$((all_done+1))
+		echo "DONE SYNCING: [$all_done / $TOTAL] $((100 * all_done / TOTAL))%: $apk"
+	done
+}
 
 get_all_manpages() {
-	# Install -doc package, copy out manpages, remove package
-	# FIXME: Last package wins, if there are namespace colisions
-	local tmpdir=$(mktemp -d /tmp/apk-XXXXXXXX)
-	local j=0
-	local all_done=0
-	for i in $DOC_PKGS; do
+	# FIXME: Sorted by name and version, last package wins, if there are namespace colisions
+	local j=0 p=
+	local total=$(ls "$PKG_DIR" | wc -l)
+	# Need gnutar for tar --wildcards
+	apk add gnutar
+	for p in $PKG_DIR/*; do
 		j=$((j+1))
-		if grep -q "^$i$" packages.done; then
-			# Optimize for packages we might have already installed due to dependencies
-			# Also, kind of allows this script to be re-entrant for subsequent runs
-			all_done=$(wc -l packages.done | awk '{print $1}' || printf "0")	
-			echo "SKIPPING: [$all_done / $TOTAL] $((100 * all_done / TOTAL))%: $i"
-		else
-			apk add "$i" >/dev/null
-			apk info --all >> packages.done
-			sort -u packages.done > packages.done.new
-			mv -f packages.done.new packages.done
-			rsync -a /usr/share/man "$DEST_DIR"
-			case "$i" in
-				apk-tools|busybox|ca-certificates-bundle|glibc|glibc-locale-posix|ld-linux|libcrypt1|libcrypto3|libssl3|openssl-config|wolfi-base|wolfi-baselayout|wolfi-keys|zlib)
-					# Do NOT delete these base packages
-					true
-				;;
-				*)
-					apk del $i >/dev/null
-				;;
-			esac
-			all_done=$(wc -l packages.done | awk '{print $1}' || printf "0")	
-			echo "DONE: [$all_done / $TOTAL] $((100 * all_done / TOTAL))%: $i"
-		fi
+		tar xf "$p" -C "$DEST_DIR" --wildcards "usr/share/man/*" --overwrite 2>/dev/null
+		echo "DONE: [$j / $total] $((100 * j / total))%: $p"
 	done
 }
 
@@ -81,6 +77,7 @@ delete_non_manpages() {
 	# Try to prune files that are likely not readable by the "man" command
 	local f t
 	echo "INFO: Deleting non manpages"
+	apk add file
 	for i in $(find "$DEST_DIR" -type f); do
 		# Best guess at file type
 		t=$(file "$f")
@@ -148,6 +145,7 @@ create_archive() {
 	tar zcf "$DEST_DIR"/manpages.tar.gz "$DEST_DIR"
 }
 
+sync_local_package_archive
 get_all_manpages
 unzip_any_zipped_files
 delete_non_manpages
