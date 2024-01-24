@@ -127,18 +127,16 @@ symlink() {
 	find "$DEST_DIR" -type d -empty -delete
 }
 
-index() {
-	# Build our manpage index
-	echo "INFO: Building an index..."
-	find "$DEST_DIR" | sed -e "s/.*manpages\///" | gzip -9 > "$DEST_DIR"/manpages.index.gz
-}
-
 tarball() {
 	# create a static archive for offline usage
+	apk add gnutar
 	echo "INFO: Creating a static archive..."
 	rm -f "$DEST_DIR"/manpages.tar.gz
-	tar zcf /tmp/manpages.tar.gz "$DEST_DIR"/usr/share
+	tar zcf /tmp/manpages.tar.gz -C "$DEST_DIR"/usr/share man
 	mv -f /tmp/manpages.tar.gz "$DEST_DIR"
+	# Build our manpage index
+	echo "INFO: Building an index..."
+	find "$DEST_DIR" | sed -e "s:.*manpages/usr/share/::" | gzip -9 > "$DEST_DIR"/manpages.index.gz
 }
 
 usage() {
@@ -153,7 +151,6 @@ $0 [-v|--verbose] [STEP]
     - permission           # Takes ~20 seconds
     - compress             # Takes ~40 seconds
     - symlink              # Takes ~40 seconds
-    - index                # Takes ~2 seconds
     - tarball              # Takes ~4 seconds
 
   Alternatively, you can specify exactly one of the above steps, to run only that step
@@ -176,7 +173,7 @@ for i in "$@"; do
 			VERBOSE=1
 			set -x
 		;;
-		mirror|extract|prune|permission|compress|symlink|index|tarball)
+		mirror|extract|prune|permission|compress|symlink|tarball)
 			# Run the specified step
 			cd /root
 			$1
@@ -197,7 +194,6 @@ prune
 permission
 compress
 symlink
-index
 tarball
 
 # Results in a ~46M manpages.tar.gz with ~25K manpages (97M uncompressed archive)

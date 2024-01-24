@@ -25,19 +25,16 @@ compress: wolfi-base
 symlink: wolfi-base
 	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo symlink
 
-index: wolfi-base
-	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo index
-	mv -f manpages/manpages.index.gz .
-	ls -halF manpages.index.gz
-	zcat manpages.index.gz | wc -l
-
 tarball: wolfi-base
 	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo tarball
 	mv -f manpages/manpages.tar.gz .
 	ls -halF manpages.tar.gz
 	tar -tf manpages.tar.gz | wc -l
+	mv -f manpages/manpages.index.gz .
+	ls -halF manpages.index.gz
+	zcat manpages.index.gz | wc -l
 
-docker: index tarball
+docker: tarball
 	# Make a docker image with the manpage archives
 	docker build . -t wolfi-manpage-repo
 
