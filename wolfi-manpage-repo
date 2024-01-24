@@ -15,14 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-# Establish our destination directory inside of the container where we run
-cd /root
-DEST_DIR="manpages"
-PKG_DIR="packages"
-mkdir -p "$DEST_DIR" "$PKG_DIR"
-
-sync_local_package_archive() {
+mirror() {
 	# Ideally, we'd look at -doc packages only, but it seems that manpages
 	# are often shipped in other binary packages, too
 	# --doc-only seems to pick up about ~27K manpages, whereas the full run finds about 30K
@@ -51,7 +44,7 @@ sync_local_package_archive() {
 			wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
 			tries=$((tries+1))
 			if [ "$tries" -gt 3 ]; then
-				echo "ERROR: Integrity error [$apk.apk]"
+				echo "ERROR: Integrity error [$apk.apk]" 1>&2
 				rm -f "$PKG_DIR/$apk.apk"
 				break
 			fi
@@ -61,7 +54,7 @@ sync_local_package_archive() {
 	done
 }
 
-get_all_manpages() {
+extract() {
 	# FIXME: Sorted by name and version, last package wins, if there are namespace colisions
 	local j=0 p=
 	local total=$(ls "$PKG_DIR" | wc -l)
@@ -72,20 +65,17 @@ get_all_manpages() {
 		tar xf "$p" -C "$DEST_DIR" --wildcards "usr/share/man/*" --overwrite 2>/dev/null
 		echo "DONE: [$j / $total] $((100 * j / total))%: $p"
 	done
-}
-
-
-unzip_any_zipped_files() {
 	# Unzip any files in $DEST_DIR, if there are any
 	echo "INFO: Unzip any zipped files"
 	find "$DEST_DIR" -type f -name "*.gz" | xargs -i gunzip -f {}
 }
 
-delete_non_manpages() {
+
+prune() {
 	# Try to prune files that are likely not readable by the "man" command
 	local f t
-	echo "INFO: Deleting non manpages"
 	apk add file
+	echo "INFO: Examining and deleting non manpages"
 	for f in $(find "$DEST_DIR" -type f); do
 		# Best guess at file type
 		t=$(file "$f")
@@ -101,12 +91,14 @@ delete_non_manpages() {
 		fi
 		# Anything else, we'll scrap as not-a-manpage
 		# Mostly these are htm, html, pdf, jpg, and gifs that leaked into /usr/share/man somehow...
-		echo "$f" >> $DEST_DIR/deleted.index
+		echo "$f" >> "$DEST_DIR"/deleted.index
 		rm -f "$f"
 	done
+	touch "$DEST_DIR"/deleted.index
+	gzip -9 "$DEST_DIR"/deleted.index
 }
 
-fix_permissions() {
+permission() {
 	# Ensure permissions
 	echo "INFO: Fixing permissions..."
 	chown -R 1000:1000 $DEST_DIR
@@ -114,13 +106,13 @@ fix_permissions() {
 	find $DEST_DIR -type f | xargs -i chmod 644 {}
 }
 
-zip_each_file() {
+compress() {
 	# gzip every manpage
 	echo "INFO: Zipping all manpages..."
 	find "$DEST_DIR" -type f \! -name \*.gz | xargs -i gzip -9 {}
 }
 
-fix_symlinks() {
+symlink() {
 	# Handle symlinks
 	local dir dest
 	echo "INFO: Updating symlinks to gzip files"
@@ -135,28 +127,77 @@ fix_symlinks() {
 	find "$DEST_DIR" -type d -empty -delete
 }
 
-build_index() {
+index() {
 	# Build our manpage index
 	echo "INFO: Building an index..."
 	find "$DEST_DIR" | sed -e "s/.*manpages\///" | gzip -9 > "$DEST_DIR"/manpages.index.gz
 }
 
-create_archive() {
+tarball() {
 	# create a static archive for offline usage
 	echo "INFO: Creating a static archive..."
 	rm -f "$DEST_DIR"/manpages.tar.gz
-	tar zcf /tmp/manpages.tar.gz "$DEST_DIR"
+	tar zcf /tmp/manpages.tar.gz "$DEST_DIR"/usr/share
 	mv -f /tmp/manpages.tar.gz "$DEST_DIR"
 }
 
-sync_local_package_archive	# ~5 hours for a full run, ~5 seconds for no-op; ~36G of disk
-get_all_manpages		# ~22 minutes, and 260M of disk
-unzip_any_zipped_files		# ~10 seconds
-delete_non_manpages		# ~2 minutes
-fix_permissions			# ~20 seconds
-zip_each_file			# ~40 seconds
-fix_symlinks			# ~40 seconds
-build_index			# ~2 seconds
-create_archive			# ~4 seconds
+usage() {
+	echo "
+Usage:
+$0 [-v|--verbose] [STEP]
+
+  Default behavior is to run each of these steps, in this order:
+    - mirror               # Takes ~5 hours from scratch, or ~32 minutes to re-sync (36GB)
+    - extract              # Takes ~22 minutes (260MB)
+    - prune                # Takes ~90 seconds
+    - permission           # Takes ~20 seconds
+    - compress             # Takes ~40 seconds
+    - symlink              # Takes ~40 seconds
+    - index                # Takes ~2 seconds
+    - tarball              # Takes ~4 seconds
+
+  Alternatively, you can specify exactly one of the above steps, to run only that step
+
+"
+}
+
+
+# Establish our destination directory inside of the container where we run
+DEST_DIR="manpages"
+PKG_DIR="packages"
+VEROSE=0
+mkdir -p "$DEST_DIR" "$PKG_DIR"
+
+# Handle command line options
+for i in "$@"; do
+	case "$i" in
+		-v|--verbose)
+			shift
+			VERBOSE=1
+			set -x
+		;;
+		mirror|extract|prune|permission|compress|symlink|index|tarball)
+			# Run the specified step
+			cd /root
+			$1
+			exit 0
+		;;
+		-h|--help|*)
+			usage
+			exit 1
+		;;
+	esac
+done
+
+# Otherwise, run all of the steps in order
+cd /root
+mirror
+extract
+prune
+permission
+compress
+symlink
+index
+tarball
 
 # Results in a ~46M manpages.tar.gz with ~25K manpages (97M uncompressed archive)
