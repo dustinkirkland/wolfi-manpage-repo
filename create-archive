@@ -16,11 +16,10 @@
 # limitations under the License.
 
 
-# Establish our destination directory
+# Establish our destination directory inside of the container where we run
 cd /root
 DEST_DIR="manpages"
 PKG_DIR="packages"
-TMP_DIR="$(mktemp -d /tmp/wolfi-manpage-repo-XXXXXXXX)"
 mkdir -p "$DEST_DIR" "$PKG_DIR"
 
 sync_local_package_archive() {
@@ -41,8 +40,6 @@ sync_local_package_archive() {
 	local a="x86_64"
 	local all_done=0
 	# Create a local package archive mirror
-	# This currently takes ~5 hours and ~36G of disk for a full run
-	# and 5 seconds for a no-op run
 	for apk in $PKGS; do
 		url="https://packages.wolfi.dev/os/$a/$apk.apk"
 		[ -s "$PKG_DIR/$apk.apk" ] || wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
@@ -70,7 +67,7 @@ get_all_manpages() {
 unzip_any_zipped_files() {
 	# Unzip any files in $DEST_DIR, if there are any
 	echo "INFO: Unzip any zipped files"
-	find "$DEST_DIR" -type f -name "*.gz" | xargs -i gunzip {}
+	find "$DEST_DIR" -type f -name "*.gz" | xargs -i gunzip -f {}
 }
 
 delete_non_manpages() {
@@ -78,30 +75,23 @@ delete_non_manpages() {
 	local f t
 	echo "INFO: Deleting non manpages"
 	apk add file
-	for i in $(find "$DEST_DIR" -type f); do
+	for f in $(find "$DEST_DIR" -type f); do
 		# Best guess at file type
 		t=$(file "$f")
 		case "$t" in
 			*"troff or preprocessor input"*)
 				# If 'file' says it's troff format, then good enough, it's a manpage
-				true
-			;;
-			*"C source"*|*"ASCII text"*|*"Par archive data"*|*": data")
-				# For some reason, 'file' doesn't recognize these as manpages
-				# However, if they were installed in /usr/share/man, and the filename
-				# looks like a manpage with a dot-number, then we're going to call it a manpage
-				if echo "$f" | grep -q "\.[0-9]"; then
-					true
-				else
-					rm -f "$f"
-				fi
-			;;
-			*)
-				# Anything else, we'll scrap as not-a-manpage
-				echo "$f" >> $DEST_DIR/deleted.index
-				rm -f "$f"
+				continue
 			;;
 		esac
+		if (basename "$f" | grep -q "\.[0-9]"); then
+			# Looks like a manpage filename
+			continue
+		fi
+		# Anything else, we'll scrap as not-a-manpage
+		# Mostly these are htm, html, pdf, jpg, and gifs that leaked into /usr/share/man somehow...
+		echo "$f" >> $DEST_DIR/deleted.index
+		rm -f "$f"
 	done
 }
 
@@ -131,6 +121,7 @@ fix_symlinks() {
 	# Delete broken links
 	echo "INFO: Deleting broken links"
 	find "$DEST_DIR" -type l ! -exec test -e {} \; -print | xargs -i rm -f {}
+	find "$DEST_DIR" -type d -empty -delete
 }
 
 build_index() {
@@ -145,12 +136,14 @@ create_archive() {
 	tar zcf "$DEST_DIR"/manpages.tar.gz "$DEST_DIR"
 }
 
-sync_local_package_archive
-get_all_manpages
-unzip_any_zipped_files
-delete_non_manpages
-fix_permissions
-zip_each_file
-fix_symlinks
-build_index
-create_archive
+sync_local_package_archive	# ~5 hours for a full run, ~5 seconds for no-op; ~36G of disk
+get_all_manpages		# ~22 minutes, and 260M of disk
+unzip_any_zipped_files		# ~10 seconds
+delete_non_manpages		# ~2 minutes
+fix_permissions			# ~20 seconds
+zip_each_file			# ~40 seconds
+fix_symlinks			# ~40 seconds
+build_index			# ~2 seconds
+create_archive			# ~4 seconds
+
+# Results in a ~46M manpages.tar.gz with ~25K manpages (97M uncompressed archive)
