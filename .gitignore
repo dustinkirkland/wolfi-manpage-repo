@@ -1,3 +1,4 @@
 *.gz
 manpages
+packages
 .ash_history
