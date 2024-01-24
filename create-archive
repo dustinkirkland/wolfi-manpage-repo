@@ -133,7 +133,9 @@ build_index() {
 create_archive() {
 	# create a static archive for offline usage
 	echo "INFO: Creating a static archive..."
-	tar zcf "$DEST_DIR"/manpages.tar.gz "$DEST_DIR"
+	rm -f "$DEST_DIR"/manpages.tar.gz
+	tar zcf /tmp/manpages.tar.gz "$DEST_DIR"
+	mv -f /tmp/manpages.tar.gz "$DEST_DIR"
 }
 
 sync_local_package_archive	# ~5 hours for a full run, ~5 seconds for no-op; ~36G of disk
