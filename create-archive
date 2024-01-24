@@ -39,12 +39,23 @@ sync_local_package_archive() {
 	local apk= url=
 	local a="x86_64"
 	local all_done=0
+	local tries=0
 	# Create a local package archive mirror
 	for apk in $PKGS; do
 		url="https://packages.wolfi.dev/os/$a/$apk.apk"
 		[ -s "$PKG_DIR/$apk.apk" ] || wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
-		# Should check signatures?
-		# apk verify "$PKG_DIR/$apk.apk"
+		# Check package integrity
+		tries=0
+		while ! apk verify "$PKG_DIR/$apk.apk"; do
+			rm -f "$PKG_DIR/$apk.apk"
+			wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
+			tries=$((tries+1))
+			if [ "$tries" -gt 3 ]; then
+				echo "ERROR: Integrity error [$apk.apk]"
+				rm -f "$PKG_DIR/$apk.apk"
+				break
+			fi
+		done
 		all_done=$((all_done+1))
 		echo "DONE SYNCING: [$all_done / $TOTAL] $((100 * all_done / TOTAL))%: $apk"
 	done
