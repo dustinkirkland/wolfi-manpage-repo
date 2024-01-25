@@ -38,9 +38,9 @@ MAN_ARGS=$(echo "$@" | sed "s/\$PAGE$//")
 [ "$LOCALE" = "C" -o "$LOCALE" = "C.UTF-8" ] && LOCALE="" || true
 [ ! -z "$LOCALE" ] && LOCALE="${LOCALE%%_*}" || true
 if [ ! -z "$LOCALE" -a "$LOCALE" != "en" -a "$LOCALE" != "C.UTF-8" ]; then
-	GREP="^man\/$LOCALE.*\/$PAGE\."
+	GREP="^manpages/man\/$LOCALE.*\/$PAGE\..*gz"
 else
-	GREP="^man\/man.\/$PAGE\."
+	GREP="^manpages/man\/man.\/$PAGE\..*gz"
 fi
 
 update_cache() {
@@ -78,10 +78,10 @@ search_index() {
 
 fetch_and_render() {
 	local regex="$1"
-	local i=$(zcat "$INDEX" | grep -m1 "$regex")
+	local i=$(zcat "$INDEX" | grep -m1 "$regex" | sed -e "s:^manpages/::")
 	local man="$CACHE/$i"
 	mkdir -p $(dirname "$man")
-	if wget -O "$man" "$REPO/$i" 2>/dev/null; then
+	if wget -O "$man" "$REPO/$i"; then
 #		if echo "$man" | egrep -q "\.htm.gz|\.html.gz|\.xml.gz"; then
 #			w3m "$man"
 		if echo "$man" | grep -q "man/cat"; then

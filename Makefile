@@ -1,3 +1,7 @@
+UID = $(shell id -u)
+GID = $(shell id -g)
+DOCKER_CMD := docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo -o ${UID}:${GID}
+
 # Full archive build from scratch takes ~6 hours
 all: mirror extract prune permission compress symlink docker
 
@@ -5,28 +9,28 @@ wolfi-base:
 	docker pull cgr.dev/chainguard/wolfi-base:latest
 
 mirror: wolfi-base
-	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo mirror
+	${DOCKER_CMD} mirror
 
 extract: wolfi-base
-	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo extract
+	${DOCKER_CMD} extract
 
 prune: wolfi-base
-	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo prune
+	${DOCKER_CMD} prune
 	mv -f manpages/deleted.index.gz .
 	ls -halF deleted.index.gz
 	zcat deleted.index.gz | wc -l
 
 permission: wolfi-base
-	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo permission
+	${DOCKER_CMD} permission
 
 compress: wolfi-base
-	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo compress
+	${DOCKER_CMD} compress
 
 symlink: wolfi-base
-	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo symlink
+	${DOCKER_CMD} symlink
 
 tarball: wolfi-base
-	docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo tarball
+	${DOCKER_CMD} tarball
 	mv -f manpages/manpages.tar.gz .
 	ls -halF manpages.tar.gz
 	tar -tf manpages.tar.gz | wc -l
