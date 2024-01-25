@@ -91,7 +91,6 @@ fetch_and_render() {
 			zcat "$man" | man $MAN_ARGS -l -
 		fi
 	fi
-	rm -f "$man"
 }
 
 update_cache
