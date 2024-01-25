@@ -19,8 +19,18 @@
 
 set -e
 
-REPO="https://web-v1-enfmknn37q-uc.a.run.app"
-INDEX="/var/cache/man/manpages.index.gz"
+# Allow for REPO override in an environment variable (for testing)
+[ -z "$REPO" ] && REPO="https://web-v1-enfmknn37q-uc.a.run.app"
+
+# Try to use a system wide cache, but also support user local
+CACHE="/var/cache/man/"
+INDEX="$INDEX/manpages.index.gz"
+if [ ! -w "$CACHE" ] || [ ! -w "$INDEX" ]; then
+	CACHE="$HOME/.man"
+	mkdir -p "$CACHE"
+	INDEX="$CACHE/manpages.index.gz"
+fi
+
 PAGE=$(echo "$@" | awk '{print $NF}')
 MAN_ARGS=$(echo "$@" | sed "s/\$PAGE$//")
 [ ! -z "$LANG" -a -z "$LOCALE" ] && LOCALE="$LANG" || true
@@ -28,17 +38,14 @@ MAN_ARGS=$(echo "$@" | sed "s/\$PAGE$//")
 [ "$LOCALE" = "C" -o "$LOCALE" = "C.UTF-8" ] && LOCALE="" || true
 [ ! -z "$LOCALE" ] && LOCALE="${LOCALE%%_*}" || true
 if [ ! -z "$LOCALE" -a "$LOCALE" != "en" -a "$LOCALE" != "C.UTF-8" ]; then
-	GREP="^manpages\/man\/$LOCALE.*\/$PAGE\."
+	GREP="^man\/$LOCALE.*\/$PAGE\."
 else
-	GREP="^manpages\/man\/man.\/$PAGE\."
+	GREP="^man\/man.\/$PAGE\."
 fi
 
 update_cache() {
-	# Setup index cache dir
-	mkdir -p $(dirname "$INDEX")
 	# If we have no index, or the index is more than a day old, update cache
-	if [ ! -s "$INDEX" ] || [ $(find "$INDEX" -mmin +1440 -print) ]; then
-		echo "INFO: Updating cache..."
+	if [ ! -s "$INDEX" ] || [ $(find "$INDEX" -mmin +1440) ]; then
 		rm -f "$INDEX"
 		wget -q -O"$INDEX" "$REPO/manpages.index.gz"
 	fi
@@ -63,7 +70,7 @@ search_index() {
 		;;
 		*)
 			echo "ERROR: Multiple matches for '$PAGE'" 1>&2
-			zcat "$INDEX" | grep -c "$regex"
+			zcat "$INDEX" | grep "$regex" | sed -e "s/.*\///" | sed -e "s/^/  - /" -e "s/\.gz$//"
 			exit 1
 		;;
 	esac
@@ -74,7 +81,6 @@ fetch_and_render() {
 	local tmpdir=$(mktemp -d /dev/shm/dman.XXXXXX)
 	trap "rm -rf $tmpdir" EXIT HUP INT QUIT TERM
 	local i=$(zcat "$INDEX" | grep -m1 "$regex")
-	i=${i#manpages/}
 	local man="$tmpdir/$i"
 	mkdir -p $(dirname "$man")
 	if wget -O "$man" "$REPO/$i" 2>/dev/null; then
