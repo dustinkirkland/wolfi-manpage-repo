@@ -78,20 +78,17 @@ search_index() {
 
 fetch_and_render() {
 	local regex="$1"
-	local tmpdir=$(mktemp -d /dev/shm/dman.XXXXXX)
-	trap "rm -rf $tmpdir" EXIT HUP INT QUIT TERM
 	local i=$(zcat "$INDEX" | grep -m1 "$regex")
-	local man="$tmpdir/$i"
+	local man="$CACHE/$i"
 	mkdir -p $(dirname "$man")
 	if wget -O "$man" "$REPO/$i" 2>/dev/null; then
-		gunzip "$man"
-		if echo "$man" | egrep -q "\.htm.gz|\.html.gz|\.xml.gz"; then
-			w3m "$man"
-		elif echo "$man" | grep -q "man/cat"; then
+#		if echo "$man" | egrep -q "\.htm.gz|\.html.gz|\.xml.gz"; then
+#			w3m "$man"
+		if echo "$man" | grep -q "man/cat"; then
 			# Handle weird, pre-formatted catman pages
-			less -f -R "$man"
+			zcat "$man" | less -f -R -
 		else
-			man $MAN_ARGS -l "$man"
+			zcat "$man" | man $MAN_ARGS -l -
 		fi
 	fi
 	rm -f "$man"
