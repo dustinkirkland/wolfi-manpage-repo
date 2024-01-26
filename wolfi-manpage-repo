@@ -96,15 +96,13 @@ prune() {
 	done
 	touch "$DEST_DIR"/deleted.index
 	gzip -9 "$DEST_DIR"/deleted.index
+	[ -n "$OWNERSHIP" ] && chown -R "$OWNERSHIP" "$DEST_DIR"/deleted.index.gz
 }
 
 permission() {
 	# Ensure permissions
 	echo "INFO: Fixing permissions..."
-	local o="$1"
-	if [ -n "$o" ]; then
-		chown -R "$o" "$DEST_DIR"
-	fi
+	[ -n "$OWNERSHIP" ] && chown -R "$OWNERSHIP" "$DEST_DIR"
 	find $DEST_DIR -type d | xargs -i chmod 755 {}
 	find $DEST_DIR -type f | xargs -i chmod 644 {}
 }
@@ -198,11 +196,10 @@ while [ ! -z "$1" ]; do
 done
 
 # Otherwise, run all of the steps in order
-cd /root
 mirror
 extract
 prune
-permission "$OWNERSHIP"
+permission
 compress
 symlink
 tarball
