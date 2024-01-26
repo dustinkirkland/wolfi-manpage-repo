@@ -48,7 +48,7 @@ test:
 
 clean:
 	# Delete the generated archives
-	rm -rf archive/ manpages/ *gz .ash_history
+	rm -rf manpages/ *gz .ash_history
 
 purge: clean
 	# Deletes the entire package mirror, which could take hours to reproduce
