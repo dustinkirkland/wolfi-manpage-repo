@@ -136,7 +136,7 @@ tarball() {
 	mv -f /tmp/manpages.tar.gz "$DEST_DIR"
 	# Build our manpage index
 	echo "INFO: Building an index..."
-	find "$DEST_DIR" | sed -e "s:.*manpages/usr/share/::" | gzip -9 > "$DEST_DIR"/manpages.index.gz
+	tar tf "$DEST_DIR"/manpages.tar.gz | gzip -9 > "$DEST_DIR"/manpages.index.gz
 	[ -n "$OWNERSHIP" ] && chown "$OWNERSHIP" "$DEST_DIR"/*
 }
 
