@@ -125,6 +125,7 @@ symlink() {
 	echo "INFO: Deleting broken links"
 	find "$DEST_DIR" -type l ! -exec test -e {} \; -print | xargs -i rm -f {}
 	find "$DEST_DIR" -type d -empty -delete
+	[ -n "$OWNERSHIP" ] && chown -R "$OWNERSHIP" "$DEST_DIR"
 }
 
 tarball() {
@@ -136,6 +137,7 @@ tarball() {
 	# Build our manpage index
 	echo "INFO: Building an index..."
 	find "$DEST_DIR" | sed -e "s:.*manpages/usr/share/::" | gzip -9 > "$DEST_DIR"/manpages.index.gz
+	[ -n "$OWNERSHIP" ] && chown "$OWNERSHIP" "$DEST_DIR"/*
 }
 
 usage() {
