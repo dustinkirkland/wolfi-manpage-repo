@@ -32,15 +32,15 @@ if [ ! -w "$CACHE" ] || [ ! -w "$INDEX" ]; then
 fi
 
 PAGE=$(echo "$@" | awk '{print $NF}')
-MAN_ARGS=$(echo "$@" | sed "s/\$PAGE$//")
+MAN_ARGS=$(echo "$@" | sed -e "s/$PAGE$//")
 [ ! -z "$LANG" -a -z "$LOCALE" ] && LOCALE="$LANG" || true
 [ ! -z "$LC_MESSAGES" -a -z "$LOCALE" ] && LOCALE="$LC_MESSAGES" || true
 [ "$LOCALE" = "C" -o "$LOCALE" = "C.UTF-8" ] && LOCALE="" || true
 [ ! -z "$LOCALE" ] && LOCALE="${LOCALE%%_*}" || true
 if [ ! -z "$LOCALE" -a "$LOCALE" != "en" -a "$LOCALE" != "C.UTF-8" ]; then
-	GREP="^manpages/man\/$LOCALE.*\/$PAGE\..*gz"
+	GREP="^man\/$LOCALE.*\/$PAGE\..*gz"
 else
-	GREP="^manpages/man\/man.\/$PAGE\..*gz"
+	GREP="^man\/man.\/$PAGE\..*gz"
 fi
 
 update_cache() {
@@ -81,7 +81,8 @@ fetch_and_render() {
 	local i=$(zcat "$INDEX" | grep -m1 "$regex" | sed -e "s:^manpages/::")
 	local man="$CACHE/$i"
 	mkdir -p $(dirname "$man")
-	if wget -O "$man" "$REPO/$i"; then
+	# TODO: Check cache first?  Maybe use wget -N?
+	if wget -q -O "$man" "$REPO/$i"; then
 #		if echo "$man" | egrep -q "\.htm.gz|\.html.gz|\.xml.gz"; then
 #			w3m "$man"
 		if echo "$man" | grep -q "man/cat"; then
