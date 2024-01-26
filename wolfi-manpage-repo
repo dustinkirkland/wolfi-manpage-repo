@@ -70,6 +70,13 @@ extract() {
 	find "$DEST_DIR" -type f -name "*.gz" | xargs -i gunzip -f {}
 }
 
+permission() {
+	# Ensure permissions
+	echo "INFO: Fixing permissions..."
+	[ -n "$OWNERSHIP" ] && chown -R "$OWNERSHIP" "$DEST_DIR"
+	find $DEST_DIR -type d | xargs -i chmod 755 {}
+	find $DEST_DIR -type f | xargs -i chmod 644 {}
+}
 
 prune() {
 	# Try to prune files that are likely not readable by the "man" command
@@ -96,15 +103,7 @@ prune() {
 	done
 	touch "$DEST_DIR"/deleted.index
 	gzip -9 "$DEST_DIR"/deleted.index
-	[ -n "$OWNERSHIP" ] && chown -R "$OWNERSHIP" "$DEST_DIR"/deleted.index.gz
-}
-
-permission() {
-	# Ensure permissions
-	echo "INFO: Fixing permissions..."
 	[ -n "$OWNERSHIP" ] && chown -R "$OWNERSHIP" "$DEST_DIR"
-	find $DEST_DIR -type d | xargs -i chmod 755 {}
-	find $DEST_DIR -type f | xargs -i chmod 644 {}
 }
 
 compress() {
@@ -147,8 +146,8 @@ $0 [-o|--ownership UID:GID] [-v|--verbose] [STEP]
   Default behavior is to run each of these steps, in this order:
     - mirror               # Takes ~5 hours from scratch, or ~32 minutes to re-sync (36GB)
     - extract              # Takes ~22 minutes (260MB)
-    - prune                # Takes ~90 seconds
     - permission           # Takes ~20 seconds
+    - prune                # Takes ~90 seconds
     - compress             # Takes ~40 seconds
     - symlink              # Takes ~40 seconds
     - tarball              # Takes ~4 seconds
@@ -165,6 +164,7 @@ PKG_DIR="packages"
 VERBOSE=0
 OWNERSHIP=
 cd /root
+[ -n "$OWNERSHIP" ] && chown -R "$OWNERSHIP" "$DEST_DIR"
 mkdir -p "$DEST_DIR" "$PKG_DIR"
 
 # Handle command line options
@@ -182,7 +182,7 @@ while [ ! -z "$1" ]; do
 			shift
 			continue
 		;;
-		mirror|extract|prune|permission|compress|symlink|tarball)
+		mirror|extract|permission|prune|compress|symlink|tarball)
 			# Run the specified step
 			cd /root
 			$1
@@ -198,8 +198,8 @@ done
 # Otherwise, run all of the steps in order
 mirror
 extract
-prune
 permission
+prune
 compress
 symlink
 tarball
