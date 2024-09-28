@@ -15,7 +15,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+files() {
+	apk update
+	for apk in $(apk search | sort -u); do
+		tar tf "$PKG_DIR/$apk.apk" | grep -v "^\.PKGINFO$|^\.SIGN\.RSA\.wolfi-signing\.rsa\.pub$" | xargs -i printf "%s:/%s\n" "$apk" "{}"
+	done
+}
+
 mirror() {
+	local apk= url=
+	local a="x86_64"
+	local all_done=0
+	local tries=0
+	local checksums="$1"
 	# Ideally, we'd look at -doc packages only, but it seems that manpages
 	# are often shipped in other binary packages, too
 	# --doc-only seems to pick up about ~27K manpages, whereas the full run finds about 30K
@@ -23,32 +35,46 @@ mirror() {
 	#TOTAL=$(apk search | grep '\-doc\-' | sed -e "s/\-doc\-.*/\-doc/" | wc -l)
 	#
 	# So instead, we need to inspect all Wolfi manpages
-	apk update
 	# We need full wget, for -N option
+	apk update
 	apk add wget
+	rm -f "$PKG_DIR/APKINDEX.tar.gz"
+	wget -N -O "$PKG_DIR/APKINDEX.tar.gz" -c https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
 	# Get our full package list
-	PKGS=$(apk search | sort -u)
-	TOTAL=$(apk search | sort -u | wc -l)
-	local apk= url=
-	local a="x86_64"
-	local all_done=0
-	local tries=0
+	#PKGS=$(apk search | sort -u)
+	#PKGS=$(tar -xOzf $PKG_DIR/APKINDEX.tar.gz APKINDEX | grep "^[PV]:" | sed -e "s/^P://" -e '$!N;s/\nV:/-/' | sort -u)
+	tar -xOzf $PKG_DIR/APKINDEX.tar.gz APKINDEX | grep "^[PV]:" | sed -e '$!N;s/\n/ /' -e "s/^P://" -e "s/ V:/ /" | sort -Vur >.index
+	PKGS=$(awk '{print $1}' .index | sort -u)
+	TOTAL=$(awk '{print $1}' .index | sort -u | wc -l)
+	rm -f .index2
+	p=
+	lastp=
+	while read -r line; do
+		p="${line%% *}"
+		v="${line##* }"
+		[ "$p" != "$lastp" ] && echo "$p-$v" >>.index2
+		lastp="$p"
+	done < .index
+	tac .index2 > .index
 	# Create a local package archive mirror
-	for apk in $PKGS; do
+	for apk in $(cat .index); do
 		url="https://packages.wolfi.dev/os/$a/$apk.apk"
 		[ -s "$PKG_DIR/$apk.apk" ] || wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
-		# Check package integrity
-		tries=0
-		while ! apk verify "$PKG_DIR/$apk.apk"; do
-			rm -f "$PKG_DIR/$apk.apk"
-			wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
-			tries=$((tries+1))
-			if [ "$tries" -gt 2 ]; then
-				echo "ERROR: Integrity error [$apk.apk]" 1>&2
+		if [ ! -z "$checksums" ]; then
+			# Check package integrity
+			tries=0
+			echo "CHECKING INTEGRITY: [$apk]"
+			while ! apk verify "$PKG_DIR/$apk.apk"; do
 				rm -f "$PKG_DIR/$apk.apk"
-				break
-			fi
-		done
+				wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
+				tries=$((tries+1))
+				if [ "$tries" -gt 2 ]; then
+					echo "ERROR: Integrity error [$apk.apk]" 1>&2
+					rm -f "$PKG_DIR/$apk.apk"
+					break
+				fi
+			done
+		fi
 		all_done=$((all_done+1))
 		echo "DONE SYNCING: [$all_done / $TOTAL] $((100 * all_done / TOTAL))%: $apk"
 	done
@@ -162,7 +188,8 @@ $0 [-o|--ownership UID:GID] [-v|--verbose] [STEP]
 
 # Establish our destination directory inside of the container where we run
 DEST_DIR="manpages"
-PKG_DIR="packages"
+PKG_DIR="os/x86_64"
+mkdir -p $DEST_DIR $PKG_DIR
 VERBOSE=0
 OWNERSHIP=
 cd /root
@@ -184,7 +211,7 @@ while [ ! -z "$1" ]; do
 			shift
 			continue
 		;;
-		mirror|extract|permission|prune|compress|symlink|tarball)
+		mirror|extract|files|permission|prune|compress|symlink|tarball)
 			# Run the specified step
 			cd /root
 			$1

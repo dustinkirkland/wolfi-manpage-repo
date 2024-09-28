@@ -11,6 +11,9 @@ wolfi-base:
 mirror: wolfi-base
 	${DOCKER_CMD} mirror
 
+files: wolfi-base
+	${DOCKER_CMD} files
+
 extract: wolfi-base
 	${DOCKER_CMD} extract
 
