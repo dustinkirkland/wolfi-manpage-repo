@@ -1,6 +1,6 @@
 UID = $(shell id -u)
 GID = $(shell id -g)
-DOCKER_CMD := docker run --rm -it -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo -o ${UID}:${GID}
+DOCKER_CMD := docker run --rm -v ${PWD}:/root/ cgr.dev/chainguard/wolfi-base:latest /root/wolfi-manpage-repo -o ${UID}:${GID}
 
 # Full archive build from scratch takes ~6 hours
 all: mirror extract prune permission compress symlink tarball docker
@@ -11,7 +11,10 @@ wolfi-base:
 mirror: wolfi-base
 	${DOCKER_CMD} mirror
 
-files: wolfi-base
+packages: wolfi-base
+	${DOCKER_CMD} packages
+
+files: packages
 	${DOCKER_CMD} files
 
 extract: wolfi-base

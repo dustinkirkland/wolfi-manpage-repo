@@ -15,11 +15,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-files() {
+packages() {
 	apk update
-	for apk in $(apk search | sort -u); do
-		tar tf "$PKG_DIR/$apk.apk" | grep -v "^\.PKGINFO$|^\.SIGN\.RSA\.wolfi-signing\.rsa\.pub$" | xargs -i printf "%s:/%s\n" "$apk" "{}"
+	rm -f PACKAGES
+	apk search | sort -u > PACKAGES
+}
+
+files() {
+	local tmpdir=$(mktemp -d)
+	local a=$(uname -m)
+	local url=
+	for apk in $(cat PACKAGES); do
+		[ $(pgrep tar | wc -l) -gt $(nproc) ] && sleep 1
+		url="https://packages.wolfi.dev/os/$a/$apk.apk"
+		[ -s "$PKG_DIR/$apk.apk" ] || wget -q --continue -N -O "$PKG_DIR/$apk.apk" "$url"
+		tar tf "$PKG_DIR/$apk.apk" | grep -v "^\.PKGINFO$|^\.SIGN\.RSA\.wolfi-signing\.rsa\.pub$" | xargs -i printf "%s:/%s\n" "$apk" "{}" >> "$tmpdir"/$apk &
 	done
+	cat "$tmpdir"/* | sort -u > FILES
 }
 
 mirror() {
@@ -37,7 +49,6 @@ mirror() {
 	# So instead, we need to inspect all Wolfi manpages
 	# We need full wget, for -N option
 	apk update
-	apk add wget
 	rm -f "$PKG_DIR/APKINDEX.tar.gz"
 	wget -N -O "$PKG_DIR/APKINDEX.tar.gz" -c https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
 	# Get our full package list
@@ -85,7 +96,6 @@ extract() {
 	local j=0 p=
 	local total=$(ls "$PKG_DIR" | wc -l)
 	# Need gnutar for tar --wildcards
-	apk add gnutar
 	for p in $PKG_DIR/*; do
 		j=$((j+1))
 		tar xf "$p" -C "$DEST_DIR" --wildcards "usr/share/man/*" --overwrite 2>/dev/null
@@ -107,7 +117,6 @@ permission() {
 prune() {
 	# Try to prune files that are likely not readable by the "man" command
 	local f t
-	apk add file
 	echo "INFO: Examining and deleting non manpages"
 	for f in $(find "$DEST_DIR" -type f); do
 		# Best guess at file type
@@ -195,6 +204,8 @@ OWNERSHIP=
 cd /root
 [ -n "$OWNERSHIP" ] && chown -R "$OWNERSHIP" "$DEST_DIR"
 mkdir -p "$DEST_DIR" "$PKG_DIR"
+apk update
+apk add wget gnutar file
 
 # Handle command line options
 while [ ! -z "$1" ]; do
@@ -211,7 +222,7 @@ while [ ! -z "$1" ]; do
 			shift
 			continue
 		;;
-		mirror|extract|files|permission|prune|compress|symlink|tarball)
+		mirror|extract|files|packages|permission|prune|compress|symlink|tarball)
 			# Run the specified step
 			cd /root
 			$1
